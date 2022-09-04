@@ -87,6 +87,13 @@ int libuboot_env_store(struct uboot_ctx *ctx);
 int libuboot_initialize(struct uboot_ctx **out,
 			struct uboot_env_device *envdevs);
 
+/** @brief Set verbose flag in the structure
+ *
+ * @param[in] ctx libuboot context
+ * @return 0 in case of success, else negative value
+ */
+int libuboot_set_verbose(struct uboot_ctx *ctx);
+
 /** @brief Release all resources and exit the library
  *
  * @param[in] ctx libuboot context

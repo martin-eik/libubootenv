@@ -111,6 +111,8 @@ LIST_HEAD(vars, var_entry);
 /** libubootenv context
  */
 struct uboot_ctx {
+	/** will print debugging info if true */
+	bool verbose;
 	/** true if the environment is redundant */
 	bool redundant;
 	/** set to valid after a successful load */

@@ -14,6 +14,7 @@
 #include <string.h>
 #include <stdbool.h>
 
+#include <zconf.h>
 #include "libuboot.h"
 
 #ifndef VERSION
@@ -29,6 +30,7 @@ static struct option long_options[] = {
 	{"config", required_argument, NULL, 'c'},
 	{"defenv", required_argument, NULL, 'f'},
 	{"script", required_argument, NULL, 's'},
+	{"verbose", no_argument, NULL, 'v'},		// MV 20220903
 	{NULL, 0, NULL, 0}
 };
 
@@ -42,6 +44,7 @@ static void usage(char *program, bool setprogram)
 		" -c, --config <filename>          : configuration file (old fw_env.config)\n"
 		" -f, --defenv <filename>          : default environment if no one found\n"
 		" -V, --version                    : print version and exit\n"
+		" -v, --verbose                    : add debugging information\n"
 	);
 	if (!setprogram)
 		fprintf(stdout,
@@ -67,7 +70,7 @@ static void usage(char *program, bool setprogram)
 	
 int main (int argc, char **argv) {
 	struct uboot_ctx *ctx;
-	char *options = "Vc:f:s:nh";
+	char *options = "Vc:f:s:nhv";
 	char *cfgfname = NULL;
 	char *defenvfile = NULL;
 	char *scriptfile = NULL;
@@ -79,11 +82,19 @@ int main (int argc, char **argv) {
 	bool is_setenv = false;
 	bool noheader = false;
 	bool default_used = false;
+	bool verbose = false;
 
 	/*
 	 * As old tool, there is just a tool with symbolic link
 	 */
-
+	 
+	// Verify if executed with root privileges
+	c=getuid();		// euid is effective user id and uid is user id 
+				// both euid and uid are zero when you are root user 
+	if (c!=0){
+		fprintf(stdout," Error: Please run the script as root user !\n");
+		return 0;
+	}
 
 	progname = strrchr(argv[0], '/');
 	if (!progname)
@@ -115,6 +126,9 @@ int main (int argc, char **argv) {
 		case 's':
 			scriptfile = strdup(optarg);
 			break;
+		case 'v':
+			verbose = true;
+			break;
 		}
 	}
 	
@@ -126,11 +140,14 @@ int main (int argc, char **argv) {
 		exit(1);
 	}
 
+	if (verbose)
+		libuboot_set_verbose(ctx);
+
 	if (!cfgfname)
 		cfgfname = "/etc/fw_env.config";
 
 	if ((ret = libuboot_read_config(ctx, cfgfname)) < 0) {
-		fprintf(stderr, "Configuration file wrong or corrupted\n");
+		fprintf(stderr, "Configuration file %s not found or not referring to proper structure\n");	// TODO
 		exit (ret);
 	}
 
@@ -138,9 +155,9 @@ int main (int argc, char **argv) {
 		defenvfile = "/etc/u-boot-initial-env";
 
 	if ((ret = libuboot_open(ctx)) < 0) {
-		fprintf(stderr, "Cannot read environment, using default\n");
+		fprintf(stderr, " Error: Cannot read environment, using default. Err= %d\n",ret );
 		if ((ret = libuboot_load_file(ctx, defenvfile)) < 0) {
-			fprintf(stderr, "Cannot read default environment from file\n");
+			fprintf(stderr, " Error: Cannot read default environment from file. Err= %d\n",ret );
 			exit (ret);
 		}
 		default_used = true;
