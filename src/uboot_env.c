@@ -27,6 +27,11 @@
 #include <errno.h>
 #include <ctype.h>
 #include <signal.h>
+
+#include <stdio.h>
+#include <fcntl.h>
+#include <errno.h>
+
 #include <sys/file.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -55,6 +60,70 @@
 	if (!dev->disable_mtd_lock) ioctl (dev->fd, MEMLOCK, psector)
 #define MTDUNLOCK(dev, psector) \
 	if (!dev->disable_mtd_lock) ioctl (dev->fd, MEMUNLOCK, psector)
+
+
+ 
+//#undef NDEBUG 
+#define NDEBUG 
+
+#if !defined(NDEBUG)
+
+#define HEX_BYTE_PER_LINE 16
+static int dump_hex(char *buf, uint32_t total)
+{
+	uint32_t i, j, c;
+	uint32_t nonzero = 0;
+/*
+	for(i=0; i<total; i++){
+		if( (i%HEX_BYTE_PER_LINE)  == 0 ){
+			fprintf(stdout, "%08x: ",i);
+		}
+		fprintf(stdout, "%02x ", buf[i] );
+		if( ((i+1)%HEX_BYTE_PER_LINE)  == 0 ){
+			fprintf(stdout, "\n");
+			nonzero = 0
+		}
+	}
+*/	
+	for(i=0; i<(total - HEX_BYTE_PER_LINE); i+=HEX_BYTE_PER_LINE){
+		nonzero = 0;
+		for(j=0; j < HEX_BYTE_PER_LINE; j++){	
+			if( buf[i+j] )
+				nonzero = 1;
+		}
+		if( nonzero ){
+			fprintf(stdout, "%08x: ",i);
+			for(j=0; j < HEX_BYTE_PER_LINE; j++){	
+				fprintf(stdout, "%02x ", buf[i+j] );
+			}
+			fprintf(stdout, "  ");
+			for(j=0; j < HEX_BYTE_PER_LINE; j++){	
+				c= buf[i+j];
+//				if( (c < ' ') || (c > '_') )
+				if( (c < 0x20) || (c > 0x7f) )
+					c = '.';
+				c= fprintf(stdout, "%c ", c );
+			}
+			fprintf(stdout, "\n");
+		}	
+	}
+	fprintf(stdout, "\n");
+	
+	//  Determine double-null terminator position
+	for(i=0; i < total ; i++){
+		if( buf[i] ){
+			nonzero = 0;
+		}else{
+			nonzero++;
+		}
+		if( nonzero == 2 )
+//			fprintf(stdout, "Double_null @ %06x \n", i);
+			fprintf(stdout, "Length: %06x / %06x  = %6d / %6d \n", i-2, total, i-2, total);
+	}
+}
+
+#endif
+
 
 /*
  * The lockfile is the same as defined in U-Boot for
@@ -338,14 +407,20 @@ static int normalize_device_path(char *path, struct uboot_flash_env *dev)
 	return 0;
 }
 
-static int check_env_device(struct uboot_flash_env *dev)
+static int check_env_device(struct uboot_flash_env *dev, bool verbose)
 {
 	int fd, ret;
 	struct stat st;
 
 	dev->device_type = get_device_type(dev->devname);
-	if (dev->device_type == DEVICE_NONE)
+	
+//	fprintf(stdout," >>>  check_env_device()\n");  	// TODO
+//	fprintf(stdout," +++  dev->device_type %d \n", dev->device_type);  	// TODO
+	
+	if (dev->device_type == DEVICE_NONE){
+		fprintf(stdout," Error: DEVICE_NONE\n");  	// TODO
 		return -EBADF;
+	}
 
 	if (dev->device_type == DEVICE_UBI) {
 		ret = ubi_update_name(dev);
@@ -354,11 +429,21 @@ static int check_env_device(struct uboot_flash_env *dev)
 	}
 
 	ret = stat(dev->devname, &st);
-	if (ret < 0)
+//	fprintf(stdout," +++  stat(dev->devname, &st) = %d \n", ret);  	// TODO
+	if (ret < 0){
+		fprintf(stdout," Error: cannot stat %s\n", dev->devname);  	// TODO
 		return -EBADF;
+	}
 	fd = open(dev->devname, O_RDONLY);
-	if (fd < 0)
+
+	if (verbose)
+		fprintf(stdout," Opening device     : %s \n", dev->devname);  	// TODO
+	
+	if (fd < 0){
+		fprintf(stdout,"Error %d opening device ", errno);
+		fprintf(stdout,"= %s\n",strerror(errno));
 		return -EBADF;
+	}
 
 	if (S_ISCHR(st.st_mode)) {
 		if (dev->device_type == DEVICE_MTD) {
@@ -404,6 +489,7 @@ static int check_env_device(struct uboot_flash_env *dev)
 		int rc;
 
 		rc = ioctl(fd, BLKGETSIZE64, &blkdevsize);
+//		fprintf(stdout," +++  ioctl(fd, BLKGETSIZE64, &blkdevsize) = %d \n", rc);  	// TODO
 		if (rc < 0) {
 			close(fd);
 			return -EINVAL;
@@ -441,10 +527,14 @@ static int is_nand_badblock(struct uboot_flash_env *dev, loff_t start)
 	return bad;
 }
 
-static int fileread(struct uboot_flash_env *dev, void *data)
+static int fileread(struct uboot_flash_env *dev, void *data, bool verbose)
 {
-	int ret = 0;
+	if (verbose){
+		int seek = dev->offset;
+		fprintf(stdout," Seek in the file to position : 0x%06x  = %9ld\n", seek , seek );  	// TODO
+	}
 
+	int ret = 0;
 	if (dev->offset)
 		ret = lseek(dev->fd, dev->offset, SEEK_SET);
 
@@ -452,9 +542,15 @@ static int fileread(struct uboot_flash_env *dev, void *data)
 		return ret;
 
 	size_t remaining = dev->envsize;
+	size_t total	 = dev->envsize;
 
 	while (1) {
 		ret = read(dev->fd, data, remaining);
+		
+#if !defined(NDEBUG)
+		if (ctx->verbose)
+			dump_hex( data, total);
+#endif
 
 		if (ret == 0 && remaining > 0)
 		    return -1;
@@ -554,6 +650,7 @@ static int devread(struct uboot_ctx *ctx, unsigned int copy, void *data)
 	int ret;
 	struct uboot_flash_env *dev;
 
+
 	if (copy > 1)
 		return -EINVAL;
 
@@ -565,7 +662,7 @@ static int devread(struct uboot_ctx *ctx, unsigned int copy, void *data)
 
 	switch (dev->device_type) {
 	case DEVICE_FILE:
-		ret = fileread(dev, data);
+		ret = fileread(dev, data, ctx->verbose);
 		break;
 	case DEVICE_MTD:
 		ret = mtdread(dev, data);
@@ -948,6 +1045,8 @@ int libuboot_env_store(struct uboot_ctx *ctx)
 	return ret;
 }
 
+
+
 static int libuboot_load(struct uboot_ctx *ctx)
 {
 	int ret, i;
@@ -986,12 +1085,19 @@ static int libuboot_load(struct uboot_ctx *ctx)
 
 		dev = &ctx->envdevs[i];
 		ret = devread(ctx, i, buf[i]);
+		
+		
 		if (ret != ctx->size) {
 			free(buf[0]);
+			fprintf(stdout," Error: Size=0\n" );  	// TODO
 			return -EIO;
 		}
 		crc = *(uint32_t *)(buf[i] + offsetcrc);
 		dev->crc = crc32(0, (uint8_t *)data, usable_envsize);
+		if (ctx->verbose){
+			fprintf(stdout," crc_expected ? crc_actual    : 0x%08x 0x%08x\n",  crc , dev->crc);  		// TODO
+			fprintf(stdout," offsetcrc    , offsetdata    : 0x%08x 0x%08x\n",  offsetcrc, offsetdata);  	// TODO
+		}
 		crcenv[i] = dev->crc == crc;
 		if (ctx->redundant)
 			dev->flags = *(uint8_t *)(buf[i] + offsetflags);
@@ -1208,13 +1314,19 @@ int libuboot_read_config(struct uboot_ctx *ctx, const char *config)
 	struct uboot_flash_env *dev;
 	char *tmp;
 	int retval = 0;
+	if (ctx->verbose)
+		fprintf(stdout," Reading config file: %s \n", config );  	// TODO
 
-	if (!config)
+	if (!config){
+		fprintf(stdout," Error: Undefined config filename\n");  	// TODO
 		return -EINVAL;
+	}
 
 	fp = fopen(config, "r");
-	if (!fp)
+	if (!fp){
+		fprintf(stdout," Error: Cannot open '%s'\n", config);  	// TODO
 		return -EBADF;
+	}
 
 	dev = ctx->envdevs;
 	ctx->size = 0;
@@ -1223,6 +1335,9 @@ int libuboot_read_config(struct uboot_ctx *ctx, const char *config)
 		/* skip comments */
 		if (line[0] == '#')
 			continue;
+
+		if (ctx->verbose)
+			fprintf(stdout," Input line         : %s", line);  	// TODO
 
 		ret = sscanf(line, "%ms %lli %zx %zx %lx %d",
 				&tmp,
@@ -1235,30 +1350,40 @@ int libuboot_read_config(struct uboot_ctx *ctx, const char *config)
 		/*
 		 * At least name offset and size should be set
 		 */
-		if (ret < 3 || !tmp)
+		if (ret < 3 || !tmp){
+			
+			if (ctx->verbose)
+				fprintf(stdout," Skipping line: only %d parameters parsed \n", ret );  	// TODO
 			continue;
+		}
 
 		/*
 		 * If size is set but zero, entry is wrong
 		 */
 		if (!dev->envsize) {
+			fprintf(stdout," Error: Size is set but zero, entry is wrong \n");  	// TODO
 			retval = -EINVAL;
 			break;
 		}
-
+		
 		if (!ctx->size)
 			ctx->size = dev->envsize;
 
 		if (tmp) {
+			
+//			fprintf(stdout," ---      tmp: %s \n", tmp );  	// TODO
+			
 			if (normalize_device_path(tmp, dev) < 0) {
 				free(tmp);
+				fprintf(stdout," Error: Cannot normalize_device_path\n");  	// TODO
 				retval = -EINVAL;
 				break;
 			}
 			free(tmp);
 		}
 
-		if (check_env_device(dev) < 0) {
+		if (check_env_device(dev, ctx->verbose) < 0) {
+			fprintf(stdout," Error: Device failed check\n");  	// TODO
 			retval = -EINVAL;
 			break;
 		}
@@ -1269,16 +1394,18 @@ int libuboot_read_config(struct uboot_ctx *ctx, const char *config)
 		if (ndev >= 2) {
 			ctx->redundant = true;
 			if (!check_compatible_devices(ctx))
+				fprintf(stdout," Error: Not a compatible device\n");  	// TODO
 				retval = -EINVAL;
 			break;
 		}
 	}
-	if (ndev == 0)
+	if (ndev == 0){
+		fprintf(stdout," Error: No device is defined\n");  	// TODO
 		retval = -EINVAL;
+	}
 
 	fclose(fp);
 	free(line);
-
 	return retval;
 }
 
@@ -1453,7 +1580,7 @@ int libuboot_configure(struct uboot_ctx *ctx,
 			if (!ctx->size)
 				ctx->size = dev->envsize;
 
-			if (check_env_device(dev) < 0)
+			if (check_env_device(dev, ctx->verbose) < 0)
 				return -EINVAL;
 
 			if (i > 0) {
@@ -1478,6 +1605,8 @@ int libuboot_initialize(struct uboot_ctx **out,
 		return -ENOMEM;
 
 	ctx->valid = false;
+	ctx->verbose = false;
+
 	ret = libuboot_configure(ctx, envdevs);
 
 	if (ret < 0) {
@@ -1486,6 +1615,13 @@ int libuboot_initialize(struct uboot_ctx **out,
 	}
 
 	*out = ctx;
+	return 0;
+}
+
+int libuboot_set_verbose(struct uboot_ctx *ctx) {
+	if (!ctx)
+		return -EINVAL;
+	ctx->verbose = true;
 	return 0;
 }
 

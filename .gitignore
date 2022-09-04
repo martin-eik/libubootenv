@@ -30,3 +30,9 @@ src/fw_printenv
 src/libubootenv.so.*
 src/libubootenv_static.a
 .vscode
+
+CMakeCache.txt
+Makefile
+cmake_install.cmake
+libubootenv.pc
+fw_setenv
