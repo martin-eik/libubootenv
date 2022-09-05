@@ -27,6 +27,7 @@ Release/
 src/CMakeFiles/
 src/cmake_install.cmake
 src/fw_printenv
+src/fw_setenv
 src/libubootenv.so.*
 src/libubootenv_static.a
 .vscode
@@ -35,4 +36,6 @@ CMakeCache.txt
 Makefile
 cmake_install.cmake
 libubootenv.pc
-fw_setenv
+# fw_setenv
+# fw_printenv
+install_manifest.txt

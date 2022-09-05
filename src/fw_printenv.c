@@ -34,9 +34,76 @@ static struct option long_options[] = {
 	{NULL, 0, NULL, 0}
 };
 
+
+//************************************************************************************************************
+//
+// Decode English three letter Month
+//
+//************************************************************************************************************
+uint32_t
+Month_to_Int(const char * Month)
+{
+	#define 	MonChars		3
+	#define	Months		12
+	char *     	MonthNames  = "DecNovOctSepAugJulJunMayAprMarFebJan";
+	char *     	pMonths     = MonthNames;
+	uint32_t 	iMonth      = Months;
+
+	while( (strncmp (Month, pMonths, MonChars) != 0) && (iMonth > 0) ){
+		iMonth--;            			// decrement to previous month
+		pMonths += MonChars;        	// increment pointer in template
+	}
+	return iMonth;
+}
+
+
+//************************************************************************************************************
+//
+// English to Scientific Date Format YYYY_MM_DD
+//
+//************************************************************************************************************
+uint32_t
+English_to_ScientificDate(char * YYYY_MM_DD ,const char * EnglishDate)
+// Assumes Input string formatted as "Jan 31 2018"
+// Output string formatted as "2018-01-31". Assumes that buffer * YYYY_MM_DD has at least 10+1 char allocated.
+// Brute force and not much checking - but this is the format CCS provides. 
+// BTW - could have done this as compile time macro!!
+// Or at least parse by searching for '\32' as separator. Also - locale dependent!
+//
+{
+    uint32_t success     = 0;
+    if (strlen(EnglishDate) == 11){
+        success     = Month_to_Int(EnglishDate);
+    }
+    if (success) {
+        strncpy (YYYY_MM_DD, EnglishDate + 7, 4);
+        YYYY_MM_DD +=4;
+        snprintf(YYYY_MM_DD, 9, "-%02d-", success);    // Print "-MM-" formatted Month
+        YYYY_MM_DD +=4;
+        strncpy (YYYY_MM_DD, EnglishDate + 4, 2);
+        if (*(YYYY_MM_DD) == ' '){
+            *(YYYY_MM_DD) = '0';                         // leading zero
+        }
+        YYYY_MM_DD +=2;
+        *YYYY_MM_DD ='\0';                              // terminate string
+    } else {
+        strcpy( YYYY_MM_DD, EnglishDate);
+    }
+    return success;                                    // actually Month 9n case os a success ..
+}
+
+
 static void usage(char *program, bool setprogram)
 {
-	fprintf(stdout, "%s (compiled %s)\n", program, __DATE__);
+//	fprintf(stdout, "%s (compiled %s)\n", program, __DATE__);
+
+#define TXT_BUFF_LEN 64
+	char		buffer[TXT_BUFF_LEN];
+	English_to_ScientificDate(buffer ,__DATE__);
+	strncat(buffer," ", TXT_BUFF_LEN-strlen(buffer));    //  strcat(p_txBuffer,__TIME__);
+	strncat(buffer,__TIME__, TXT_BUFF_LEN-strlen(buffer));    //  strcat(p_txBuffer,__TIME__);
+	fprintf(stdout, "%s (Compiled %s)\n", program, buffer);
+	
 	fprintf(stdout, "Usage %s [OPTION]\n",
 			program);
 	fprintf(stdout,
@@ -67,6 +134,8 @@ static void usage(char *program, bool setprogram)
 		"\n"
 		);
 }
+
+
 	
 int main (int argc, char **argv) {
 	struct uboot_ctx *ctx;
@@ -88,13 +157,6 @@ int main (int argc, char **argv) {
 	 * As old tool, there is just a tool with symbolic link
 	 */
 	 
-	// Verify if executed with root privileges
-	c=getuid();		// euid is effective user id and uid is user id 
-				// both euid and uid are zero when you are root user 
-	if (c!=0){
-		fprintf(stdout," Error: Please run the script as root user !\n");
-		return 0;
-	}
 
 	progname = strrchr(argv[0], '/');
 	if (!progname)
@@ -129,7 +191,18 @@ int main (int argc, char **argv) {
 		case 'v':
 			verbose = true;
 			break;
+		default:
+			fprintf(stdout, " Error: Unknown parameter\n", VERSION);
+			exit(1); 
 		}
+	}
+
+	// Verify if executed with root privileges
+	c=getuid();		// euid is effective user id and uid is user id 
+				// both euid and uid are zero when you are root user 
+	if (c!=0){
+		fprintf(stdout," Error: Please run the script as root user !\n");
+		exit(1);
 	}
 	
 	argc -= optind;
