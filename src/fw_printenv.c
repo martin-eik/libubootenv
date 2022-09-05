@@ -192,7 +192,7 @@ int main (int argc, char **argv) {
 			verbose = true;
 			break;
 		default:
-			fprintf(stdout, " Error: Unknown parameter\n", VERSION);
+			fprintf(stdout, " Error: Unknown parameter\n");
 			exit(1); 
 		}
 	}
